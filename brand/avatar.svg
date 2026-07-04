@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.36" r="0.95">
+      <stop offset="0" stop-color="#241014"/>
+      <stop offset="1" stop-color="#120709"/>
+    </radialGradient>
+    <linearGradient id="hot" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff6a00"/>
+      <stop offset="1" stop-color="#ff2e3e"/>
+    </linearGradient>
+  </defs>
+  <!-- dark studio background -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <!-- spotlight ring -->
+  <circle cx="512" cy="470" r="316" fill="none" stroke="url(#hot)" stroke-width="8" opacity="0.9"/>
+  <!-- studio microphone -->
+  <g>
+    <!-- mic capsule -->
+    <rect x="428" y="264" width="168" height="300" rx="84" fill="url(#hot)"/>
+    <!-- mic grille lines -->
+    <g stroke="#1a0a0d" stroke-width="10" stroke-linecap="round" opacity="0.5">
+      <line x1="452" y1="330" x2="572" y2="330"/>
+      <line x1="452" y1="386" x2="572" y2="386"/>
+      <line x1="452" y1="442" x2="572" y2="442"/>
+      <line x1="452" y1="498" x2="572" y2="498"/>
+    </g>
+    <!-- mic cradle -->
+    <path d="M 384 460 v 30 c 0 84 54 138 128 138 s 128 -54 128 -138 v -30" fill="none" stroke="#ffd9c9" stroke-width="22" stroke-linecap="round"/>
+    <!-- stand -->
+    <line x1="512" y1="628" x2="512" y2="700" stroke="#ffd9c9" stroke-width="22" stroke-linecap="round"/>
+  </g>
+  <!-- ON AIR bar -->
+  <g>
+    <rect x="286" y="742" width="452" height="118" rx="59" fill="url(#hot)"/>
+    <circle cx="366" cy="801" r="26" fill="#ffffff"/>
+    <circle cx="366" cy="801" r="40" fill="none" stroke="#ffffff" stroke-width="6" opacity="0.45"/>
+    <!-- "ON AIR" as bold shapes: O N  A I R -->
+    <g fill="#ffffff" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="64">
+      <text x="424" y="824" letter-spacing="6">ON AIR</text>
+    </g>
+  </g>
+  <!-- sound waves -->
+  <g fill="none" stroke="url(#hot)" stroke-width="14" stroke-linecap="round">
+    <path d="M 250 380 c -28 40 -28 100 0 140"/>
+    <path d="M 774 380 c 28 40 28 100 0 140"/>
+    <path d="M 190 340 c -46 62 -46 158 0 220" opacity="0.5"/>
+    <path d="M 834 340 c 46 62 46 158 0 220" opacity="0.5"/>
+  </g>
+</svg>

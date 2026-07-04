@@ -1,0 +1,4 @@
+# Market Brief Studio runs on the Python standard library only — no third-party
+# packages are required to serve the app or run the pipeline in mock mode.
+# This file's presence signals a Python project to the build system (Railway/
+# Nixpacks) and pins nothing so the build stays fast and dependency-free.
