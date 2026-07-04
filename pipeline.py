@@ -48,7 +48,7 @@ class PipelineError(RuntimeError):
 
 
 def generate(mode: str | None = None, date: str | None = None,
-             no_audio: bool = False, log=None) -> dict:
+             no_audio: bool = False, log=None, script_mode: str | None = None) -> dict:
     """Run the pipeline once, in-process: data -> script -> voice -> visuals.
 
     Shared by the CLI below and by the web studio (`serve.py`, whose
@@ -58,14 +58,19 @@ def generate(mode: str | None = None, date: str | None = None,
         {"date", "mode", "story", "audio": bool, "audio_info": str,
          "script": {...}, "brief": {...}, "artifacts": {name: filename|None}}
 
-    Raises PipelineError when a stage's validation fails. Real-mode stubs
-    raise NotImplementedError / RuntimeError exactly as before.
+    `mode` selects the DATA adapter (mock | real; real = live OKX public market
+    data, no credentials). `script_mode` selects the writer independently
+    (defaults to `mode`): the hosted service pins it to "mock" so the template
+    writer runs on real numbers without needing ANTHROPIC_API_KEY.
+
+    Raises PipelineError when a stage's validation fails.
     """
     _log = log or (lambda stage, msg: None)
     mode = okx_data.resolve_mode(mode)
+    script_mode = okx_data.resolve_mode(script_mode) if script_mode else mode
     date = date or _dt.date.today().isoformat()
     OUT.mkdir(exist_ok=True)
-    _log("studio", f"Market Brief Studio - {date} - mode={mode}")
+    _log("studio", f"Market Brief Studio - {date} - data={mode} script={script_mode}")
 
     # 1) Data ---------------------------------------------------------------
     brief = okx_data.get_daily_brief(mode=mode, date=date)
@@ -78,7 +83,7 @@ def generate(mode: str | None = None, date: str | None = None,
     _log("data", f"-> {brief_path}")
 
     # 2) Script -------------------------------------------------------------
-    script = writer.write_script(brief, mode=mode)
+    script = writer.write_script(brief, mode=script_mode)
     problems = writer.validate_script(script)
     if problems:
         raise PipelineError("writer", f"INVALID script: {problems}")

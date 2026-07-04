@@ -211,8 +211,13 @@ def run_generation(date: str | None, want_audio: bool) -> dict:
                 "error": "a brief is already being taped; try again shortly"}
     t0 = time.time()
     try:
+        # DATA mode from env (OKX_MODE=real -> live OKX public market data, with
+        # automatic fallback to mock on any network/API error). The SCRIPT writer
+        # is pinned to the template ("mock") so no ANTHROPIC_API_KEY is needed —
+        # it renders the real numbers into a broadcast script.
         result = pipeline.generate(
-            mode="mock", date=date, no_audio=not want_audio,
+            mode=os.environ.get("OKX_MODE", "real"), script_mode="mock",
+            date=date, no_audio=not want_audio,
             log=lambda st, m: print(f"[gen:{st:>7}] {m}", flush=True))
     except pipeline.PipelineError as e:
         return {"_status": 500, "ok": False, "stage": e.stage, "error": str(e)}

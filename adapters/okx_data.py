@@ -231,34 +231,177 @@ def _mock_daily_brief(date: str) -> dict:
 # Real implementation (stub)
 # --------------------------------------------------------------------------
 
+# OKX public REST — market data needs NO credentials (verified reachable).
+_OKX_BASE = os.environ.get("OKX_API_BASE_URL", "https://www.okx.com")
+_HTTP_TIMEOUT = float(os.environ.get("OKX_HTTP_TIMEOUT", "8"))
+# Swaps we report funding for (majors + SOL), in display order.
+_FUNDING_SWAPS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
+# Rank by 24h volume and keep the most-liquid universe for the movers screen,
+# rather than an absolute USD cutoff (OKX's ticker volume field scale varies).
+_LIQUID_UNIVERSE = 100
+# Stable / pegged bases sit at ~0% and must not pollute a gainers/losers screen.
+_STABLE_BASES = {
+    "USDT", "USDC", "DAI", "TUSD", "USDD", "FDUSD", "USDP", "PYUSD", "GUSD",
+    "USDG", "EURT", "EUR", "EURC", "XAUT", "PAXG", "BUSD", "USDE", "USDS",
+}
+
+
+def _http_get_json(path: str) -> dict:
+    """GET {base}{path} and return parsed JSON. stdlib only, hard timeout."""
+    import json as _json
+    import urllib.request
+
+    url = f"{_OKX_BASE}{path}"
+    req = urllib.request.Request(url, headers={"User-Agent": "market-brief-studio"})
+    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # noqa: S310
+        payload = _json.loads(resp.read().decode("utf-8"))
+    if str(payload.get("code")) not in ("0", "None"):
+        raise RuntimeError(f"OKX API error for {path}: {payload.get('msg')!r}")
+    return payload
+
+
+def _ticker_row(t: dict) -> dict:
+    """Map one OKX ticker to {inst, last, chg24h_pct, vol24h_usd}."""
+    last = float(t["last"])
+    open24h = float(t["open24h"]) or last
+    return {
+        "inst": t["instId"],
+        "last": last,
+        "chg24h_pct": round((last - open24h) / open24h * 100, 1),
+        # volCcy24h is quote-ccy (USDT ≈ USD) volume for a -USDT pair.
+        "vol24h_usd": round(float(t.get("volCcy24h") or 0.0)),
+    }
+
+
+def _fetch_major(inst: str) -> dict:
+    t = _http_get_json(f"/api/v5/market/ticker?instId={inst}")["data"][0]
+    last = float(t["last"])
+    return {
+        "last": round(last, 1 if last >= 1000 else 2),
+        "chg24h_pct": round((last - (float(t["open24h"]) or last)) / (float(t["open24h"]) or last) * 100, 1),
+        "high24h": round(float(t["high24h"]), 1 if last >= 1000 else 2),
+        "low24h": round(float(t["low24h"]), 1 if last >= 1000 else 2),
+        "vol24h_usd": round(float(t.get("volCcy24h") or 0.0)),
+    }
+
+
+def _fetch_movers() -> tuple[list[dict], list[dict]]:
+    """Top 3 gainers / top 3 losers across liquid SPOT -USDT pairs."""
+    rows = _http_get_json("/api/v5/market/tickers?instType=SPOT")["data"]
+    liquid = []
+    for t in rows:
+        if not t["instId"].endswith("-USDT"):
+            continue
+        if t["instId"].split("-")[0] in _STABLE_BASES:  # skip pegged pairs (~0%)
+            continue
+        try:
+            r = _ticker_row(t)
+        except (KeyError, ValueError, ZeroDivisionError):
+            continue
+        if r["last"] > 0:
+            liquid.append(r)
+    # Keep the most-liquid pairs, then take movers from that universe so a thin
+    # pair can't sneak into the top 3.
+    universe = sorted(liquid, key=lambda r: r["vol24h_usd"], reverse=True)[:_LIQUID_UNIVERSE]
+    # Strict sign so a green/red day can never yield a "loser" that's actually up.
+    gainers = sorted((r for r in universe if r["chg24h_pct"] > 0),
+                     key=lambda r: r["chg24h_pct"], reverse=True)[:3]
+    losers = sorted((r for r in universe if r["chg24h_pct"] < 0),
+                    key=lambda r: r["chg24h_pct"])[:3]
+    if len(gainers) < 3 or len(losers) < 3:
+        raise RuntimeError("not enough up/down liquid pairs for a movers screen")
+    return gainers, losers
+
+
+def _fetch_funding() -> list[dict]:
+    out = []
+    for inst in _FUNDING_SWAPS:
+        try:
+            d = _http_get_json(f"/api/v5/public/funding-rate?instId={inst}")["data"][0]
+            rate_pct = round(float(d["fundingRate"]) * 100, 4)
+        except (KeyError, ValueError, IndexError, RuntimeError):
+            continue
+        if abs(rate_pct) < 0.005:
+            note = "near flat - balanced positioning"
+        elif rate_pct > 0.03:
+            note = "elevated - longs crowded, paying to hold"
+        elif rate_pct > 0:
+            note = "mildly positive - healthy trend"
+        else:
+            note = "negative - shorts paying to press"
+        out.append({"inst": inst, "rate_pct": rate_pct, "note": note})
+    if not out:
+        raise RuntimeError("no funding rates fetched")
+    return out
+
+
+def _sentiment_from_market(majors: dict, gainers: list[dict], losers: list[dict]) -> dict:
+    """Derive a sentiment read from the real numbers (no news API / no auth)."""
+    avg_major = sum(m["chg24h_pct"] for m in majors.values()) / max(len(majors), 1)
+    score = max(-1.0, min(1.0, round(avg_major / 5.0, 2)))
+    label = "risk-on" if score >= 0.2 else "risk-off" if score <= -0.2 else "mixed"
+    top_g, top_l = gainers[0], losers[0]
+    g_sym, l_sym = top_g["inst"].split("-")[0], top_l["inst"].split("-")[0]
+    btc = majors.get("BTC-USDT", {}).get("chg24h_pct", 0.0)
+    eth = majors.get("ETH-USDT", {}).get("chg24h_pct", 0.0)
+    items = [
+        {"headline": f"{g_sym} leads the tape, +{top_g['chg24h_pct']}% on the day",
+         "sentiment": "bullish", "coins": [g_sym], "source": "market"},
+        {"headline": f"{l_sym} lags the market, {top_l['chg24h_pct']}%",
+         "sentiment": "bearish", "coins": [l_sym], "source": "market"},
+        {"headline": f"Majors: BTC {btc:+.1f}%, ETH {eth:+.1f}% over 24h",
+         "sentiment": "bullish" if avg_major > 0 else "bearish" if avg_major < 0 else "neutral",
+         "coins": ["BTC", "ETH"], "source": "market"},
+    ]
+    return {"score": score, "label": label, "items": items}
+
+
+def _build_real_brief(date: str) -> dict:
+    """Assemble a brief from live OKX public market data. Raises on any problem
+    (the caller falls back to mock so the endpoint never breaks)."""
+    majors = {inst: _fetch_major(inst) for inst in ("BTC-USDT", "ETH-USDT")}
+    gainers, losers = _fetch_movers()
+    funding = _fetch_funding()
+    sentiment = _sentiment_from_market(majors, gainers, losers)
+
+    top_g = gainers[0]
+    g_sym = top_g["inst"].split("-")[0]
+    btc_dir = "grinds higher" if majors["BTC-USDT"]["chg24h_pct"] >= 0 else "pulls back"
+    story = f"{g_sym} leads (+{top_g['chg24h_pct']}%) as BTC {btc_dir}; {sentiment['label']} tape."
+
+    brief = {
+        "date": date,
+        "as_of_utc": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "mode": "real",
+        "story_of_the_day": story,
+        "majors": majors,
+        "gainers": gainers,
+        "losers": losers,
+        "funding": funding,
+        "sentiment": sentiment,
+    }
+    problems = validate_brief(brief)
+    if problems:
+        raise RuntimeError(f"real brief failed validation: {problems}")
+    return brief
+
+
 def _real_daily_brief(date: str) -> dict:
-    """REAL MODE STUB - wiring plan (no OKX credentials exist yet).
+    """Live OKX public market data (majors, movers, funding) with sentiment
+    derived from the real tape. Needs NO credentials. On ANY failure (network,
+    timeout, API error, validation) it falls back to the deterministic mock
+    brief so the /api/generate endpoint always returns a valid brief.
 
-    Once `npm install -g @okx_ai/okx-trade-cli` is done, the brief is built by
-    running the commands in REAL_COMMANDS (subprocess.run each with --json and
-    json.loads the stdout):
-
-      1. majors    : REAL_COMMANDS['majors.BTC'] / ['majors.ETH']
-                     -> last, high24h, low24h, vol24h, chg24h%.
-      2. gainers   : REAL_COMMANDS['gainers']  (SPOT screener, USDT quote,
-                     min $10M 24h volume so illiquid pairs don't pollute).
-      3. losers    : REAL_COMMANDS['losers'].
-      4. funding   : REAL_COMMANDS['funding.extremes.high'/'low'] for notable
-                     rates, or per-instrument REAL_COMMANDS['funding.per_inst'].
-                     Market-data commands need NO API credentials.
-      5. sentiment : REAL_COMMANDS['sentiment.news' / 'coin' / 'rank'].
-                     Requires OKX API credentials in ~/.okx/config.toml and a
-                     LIVE profile (news does not support demo mode).
-
-    Map the CLI JSON into the brief shape documented at the top of this file,
-    set story_of_the_day from the top sentiment item + top gainer.
+    Note: news/sentiment via the OKX `news` module (auth, live-only) is NOT
+    wired — see REAL_COMMANDS. Sentiment here is computed from the real
+    market numbers instead, which keeps the whole brief credential-free.
     """
-    cmds = "\n  ".join(f"{k}: {v}" for k, v in REAL_COMMANDS.items())
-    raise NotImplementedError(
-        "OKX_MODE=real is a documented stub - no OKX credentials configured. "
-        f"Wire it with these okx-trade-cli commands:\n  {cmds}\n"
-        "See adapters/okx_data.py:_real_daily_brief for the field mapping."
-    )
+    try:
+        return _build_real_brief(date)
+    except Exception as e:  # noqa: BLE001 - endpoint safety: never propagate
+        fallback = _mock_daily_brief(date)
+        fallback["real_error"] = f"{type(e).__name__}: {e}"
+        return fallback
 
 
 # --------------------------------------------------------------------------

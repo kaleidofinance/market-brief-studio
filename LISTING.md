@@ -82,6 +82,19 @@ On-chain fees are covered by OKX (X Layer is gas-free). Settlement is in USDT.
 two lines; endpoint must pass `x402-check`; re-upload avatar immediately before
 `create`; Railway needs `HOST=0.0.0.0` (fixed in serve.py + Procfile).
 
+## Owner values — REGISTERED (Jul 3, 2026)
+
+| Field | Value |
+|---|---|
+| **Agent ID** | **3630** (X Layer, chain 196) |
+| Registration tx | `0x0fa34cf9d66c26bd5fc39f781b4236f0e9da14919af707faa4976169676cf0da` |
+| Status | **submitted for review** (`approvalStatus: 2`); result → owner email in ~2 business days |
+| Owner email / wallet login | quyyumibidun@gmail.com |
+| Payout wallet (X Layer, `X402_PAY_TO`) | `0xfba093239b764034a37a08758fa6573eea71407f` |
+| Avatar (uploaded) | `https://static.okx.com/cdn/web3/wallet/marketplace/headimages/agent/avatar/2a4af233-8574-48e5-a795-2bdc87031192.png` |
+| Endpoint (on-chain, permanent) | `https://market-brief-studio-production.up.railway.app/api/generate` — passes `x402-check` |
+| Repo | github.com/kaleidofinance/market-brief-studio (commit author: kaleidofinance, verified) |
+
 ## Owner checklist
 
 - [x] x402 pay-per-call built on `POST /api/generate` (HTTP 402 handshake,

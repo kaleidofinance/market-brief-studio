@@ -153,11 +153,14 @@ def test_frames_json_matches_timing_map():
 
 # --------------------------------------------------------------------------
 def test_real_mode_stubs_fail_loudly_and_helpfully():
-    try:
-        okx_data.get_daily_brief(mode="real", date=DATE)
-        assert False, "real data mode should raise (stub)"
-    except NotImplementedError as e:
-        assert "okx market ticker" in str(e), "stub must document okx CLI commands"
+    # Real DATA mode is wired to live OKX public market data and is endpoint-safe:
+    # it returns a VALID brief either way — real when the API is reachable, or a
+    # deterministic mock fallback (tagged with `real_error`) on any failure.
+    brief = okx_data.get_daily_brief(mode="real", date=DATE)
+    assert okx_data.validate_brief(brief) == [], "real-mode brief must be valid"
+    assert brief["mode"] in ("real", "mock")
+    if brief["mode"] == "mock":
+        assert "real_error" in brief, "a fallback must record why real failed"
 
     key = os.environ.pop("ANTHROPIC_API_KEY", None)
     try:
